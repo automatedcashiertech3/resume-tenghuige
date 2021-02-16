@@ -1,13 +1,13 @@
 <?php
 /**
  * PHP Email Form
- * Version: 2.3
+ * Version: 3.0
  * Website: https://bootstrapmade.com/php-email-form/
  * Copyright: BootstrapMade.com
  */
 
-if ( version_compare(PHP_VERSION, '5.5.0', '<') ) {
-  die('PHP version 5.5.0 and up is required. Your PHP version is ' . PHP_VERSION);
+if ( version_compare(phpversion(), '5.5.0', '<') ) {
+  die('PHP version 5.5.0 and up is required. Your PHP version is ' . phpversion());
 }
 
 class PHP_Email_Form {
@@ -36,10 +36,13 @@ class PHP_Email_Form {
     'invalid_from_email' => 'Email from: is empty or invalid!',
     'invalid_subject' => 'Subject is too short or empty!',
     'short' => 'is too short or empty!',
-    'ajax_error' => 'Sorry, the request should be an Ajax POST'
+    'ajax_error' => 'Sorry, the request should be an Ajax POST',
+    'invalid_attachment_extension' => 'File extension not allowed, please choose:',
+    'invalid_attachment_size' => 'Max allowed attachment size is:'
   );
 
   private $error = false;
+  private $attachments = [];
 
   public function __construct() {
     $this->mailer = "forms@" . @preg_replace('/^www\./','', $_SERVER['SERVER_NAME']);
@@ -58,6 +61,24 @@ class PHP_Email_Form {
 
   public function option($name, $val) {
     $this->options[$name] = $val;
+  }
+
+  public function add_attachment($name, $max_size = 20, $allowed_exensions = ['jpeg','jpg','png','pdf','doc','docx'] ) {
+    if( !empty($_FILES[$name]['name']) ) {
+      $file_exension = strtolower(end(explode('.',$_FILES[$name]['name'])));
+      if( ! in_array($file_exension, $allowed_exensions) ) {
+        die( '(' .$name . ') ' . $this->error_msg['invalid_attachment_extension'] . " ." . implode(", .", $allowed_exensions) );
+      }
+  
+      if( $_FILES[$name]['size'] > (1024 * 1024 * $max_size) ) {
+        die( '(' .$name . ') ' . $this->error_msg['invalid_attachment_size'] . " $max_size MB");
+      }
+
+      $this->attachments[] = [
+        'path' => $_FILES[$name]['tmp_name'], 
+        'name'=>  $_FILES[$name]['name']
+      ];
+    }
   }
 
   public function send() {
@@ -192,6 +213,13 @@ class PHP_Email_Form {
       if(count($this->options) > 0) {
         foreach($this->options as $option_name => $option_val) {
           $mail->$option_name = $option_val;
+        }
+      }
+
+      // Attachments
+      if(count($this->attachments) > 0) {
+        foreach($this->attachments as $attachment) {
+          $mail->AddAttachment($attachment['path'], $attachment['name']);
         }
       }
 
@@ -5866,7 +5894,16 @@ class SMTP
     public function hello($host = '')
     {
         //Try extended hello first (RFC 2821)
-        return $this->sendHello('EHLO', $host) or $this->sendHello('HELO', $host);
+        if ($this->sendHello('EHLO', $host)) {
+            return true;
+        }
+
+        //Some servers shut down the SMTP service here (RFC 5321)
+        if (substr($this->helo_rply, 0, 3) == '421') {
+            return false;
+        }
+
+        return $this->sendHello('HELO', $host);
     }
 
     /**
